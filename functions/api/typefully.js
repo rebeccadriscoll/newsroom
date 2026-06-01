@@ -11,6 +11,13 @@ const HOST = "https://api.typefully.com";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+
+  // Gate: when APP_SECRET is set, require a matching x-app-secret header.
+  const appSecret = env.APP_SECRET;
+  if (appSecret && request.headers.get("x-app-secret") !== appSecret) {
+    return json({ error: { message: "Unauthorized — missing or wrong app passphrase." } }, 401);
+  }
+
   const key = env.TYPEFULLY_API_KEY;
   if (!key) return json({ error: { message: "Missing TYPEFULLY_API_KEY secret." } }, 500);
 

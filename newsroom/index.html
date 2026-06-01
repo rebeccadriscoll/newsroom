@@ -192,6 +192,12 @@ select,input.txt{font-family:'Hanken Grotesk';font-size:13px;font-weight:600;pad
       <div class="frow"><button class="btn ghost sm" id="exportBtn">⬇ Export backup (JSON)</button><button class="btn ghost sm" id="importBtn">⬆ Import backup</button><input type="file" id="importFile" accept="application/json" style="display:none"><button class="btn ghost sm" id="reseedBtn">↺ Reset to seed</button></div>
     </div>
 
+    <div class="settings"><h4>Access passphrase</h4>
+      <p class="hint" style="margin-bottom:12px">Locks the <code>/api/*</code> proxies so only you can use them. Set the same value here <b>and</b> as a Cloudflare secret named <code>APP_SECRET</code> (Settings → Variables and Secrets), then redeploy. Until <code>APP_SECRET</code> exists the proxies stay open, so set both.</p>
+      <div class="frow"><label>Passphrase</label><input class="txt" id="cf_secret" type="password" placeholder="must match the APP_SECRET secret"></div>
+      <div class="frow"><button class="btn sm" id="saveSecret">Save passphrase</button><span class="save-tag" id="secretSaved" style="display:none">saved ✓</span></div>
+    </div>
+
     <div class="settings"><h4>AI connection (Claude)</h4>
       <p class="hint" style="margin-bottom:12px">Deployed on Cloudflare with the function + secret? Leave endpoint <code>/api/claude</code>, key blank — the key stays on the server. For local testing only, paste a key.</p>
       <div class="frow"><label>Endpoint</label><input class="txt" id="cf_endpoint" placeholder="/api/claude"></div>
@@ -234,11 +240,13 @@ var _mem=null;
 function loadState(){try{var s=localStorage.getItem(STORE_KEY);if(s)return JSON.parse(s);}catch(e){}return _mem;}
 function saveState(){try{localStorage.setItem(STORE_KEY,JSON.stringify(STATE));}catch(e){_mem=STATE;}}
 function uid(){return 'i'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
-function defSettings(){return {endpoint:'/api/claude',model:'claude-sonnet-4-6',key:'',bhPub:'',tfSS:''};}
+function defSettings(){return {endpoint:'/api/claude',model:'claude-sonnet-4-6',key:'',bhPub:'',tfSS:'',appSecret:''};}
 function seed(){var items=SEED.map(function(x){return Object.assign({},x);});return {items:items,metrics:{followers:'—',subs:'—',talks:'3'},settings:defSettings(),lastBackup:null};}
 var STATE=loadState()||seed();
 if(!STATE.settings)STATE.settings=defSettings();
-['endpoint','model','key','bhPub','tfSS'].forEach(function(k){if(STATE.settings[k]==null)STATE.settings[k]=defSettings()[k];});
+['endpoint','model','key','bhPub','tfSS','appSecret'].forEach(function(k){if(STATE.settings[k]==null)STATE.settings[k]=defSettings()[k];});
+/* Attach the app passphrase (if set) to same-origin /api/* proxy calls. */
+function apiHeaders(){var h={'content-type':'application/json'};if(STATE.settings.appSecret)h['x-app-secret']=STATE.settings.appSecret;return h;}
 
 /* ===== Claude ===== */
 function aiConfigured(){return !!(STATE.settings.key)||(STATE.settings.endpoint&&STATE.settings.endpoint.indexOf('/')===0);}
@@ -247,7 +255,7 @@ async function callClaude(userContent,maxTokens){
   var payload={model:STATE.settings.model||'claude-sonnet-4-6',max_tokens:maxTokens,messages:[{role:'user',content:userContent}]};
   var url,headers={'content-type':'application/json'};
   if(STATE.settings.key){url='https://api.anthropic.com/v1/messages';headers['x-api-key']=STATE.settings.key;headers['anthropic-version']='2023-06-01';headers['anthropic-dangerous-direct-browser-access']='true';}
-  else{url=STATE.settings.endpoint||'/api/claude';}
+  else{url=STATE.settings.endpoint||'/api/claude';if(STATE.settings.appSecret)headers['x-app-secret']=STATE.settings.appSecret;}
   var res=await fetch(url,{method:'POST',headers:headers,body:JSON.stringify(payload)});
   var data;try{data=await res.json();}catch(e){throw new Error('Bad AI response ('+res.status+').');}
   if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
@@ -255,13 +263,13 @@ async function callClaude(userContent,maxTokens){
 }
 /* ===== Typefully / Beehiiv proxies ===== */
 async function tf(path,method,body){
-  var res=await fetch('/api/typefully',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:path,method:method||'GET',body:body})});
+  var res=await fetch('/api/typefully',{method:'POST',headers:apiHeaders(),body:JSON.stringify({path:path,method:method||'GET',body:body})});
   var data;try{data=await res.json();}catch(e){throw new Error('Typefully proxy error ('+res.status+'). Is the function deployed?');}
   if(data&&data.error)throw new Error((data.error.message)||JSON.stringify(data.error));
   return data;
 }
 async function bh(path,method,body){
-  var res=await fetch('/api/beehiiv',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:path,method:method||'GET',body:body})});
+  var res=await fetch('/api/beehiiv',{method:'POST',headers:apiHeaders(),body:JSON.stringify({path:path,method:method||'GET',body:body})});
   var data;try{data=await res.json();}catch(e){throw new Error('Beehiiv proxy error ('+res.status+'). Is the function deployed?');}
   if(data&&data.error)throw new Error((data.error.message)||JSON.stringify(data.error));
   return data;
@@ -452,6 +460,7 @@ document.getElementById('exportBtn').onclick=function(){var blob=new Blob([JSON.
 document.getElementById('importBtn').onclick=function(){document.getElementById('importFile').click();};
 document.getElementById('importFile').onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(){try{var d=JSON.parse(r.result);if(!d.items)throw new Error('not a newsroom backup');STATE=d;if(!STATE.settings)STATE.settings=defSettings();saveState();fillSettings();renderAll();toast('Backup restored.');}catch(err){toast('Import failed: '+err.message);}};r.readAsText(f);};
 document.getElementById('reseedBtn').onclick=function(){if(confirm('Reset everything to the original 218-row seed? Export a backup first.')){STATE=seed();saveState();fillSettings();renderAll();toast('Reset to seed.');}};
+document.getElementById('saveSecret').onclick=function(){STATE.settings.appSecret=val('cf_secret');saveState();var t=document.getElementById('secretSaved');t.style.display='inline';setTimeout(function(){t.style.display='none';},1500);};
 document.getElementById('saveCfg').onclick=async function(){STATE.settings.endpoint=val('cf_endpoint')||'/api/claude';STATE.settings.model=val('cf_model')||'claude-sonnet-4-6';STATE.settings.key=val('cf_key');saveState();updateAIStatus();var st=document.getElementById('cfgStatus');st.textContent='Testing…';try{await callClaude('Reply with exactly: ok',20);st.textContent='✓ Connected';st.style.color='var(--sage)';}catch(e){st.textContent='✗ '+e.message;st.style.color='var(--clay)';}};
 document.getElementById('saveConn').onclick=function(){STATE.settings.bhPub=val('cf_bhpub');STATE.settings.tfSS=val('cf_tfss');saveState();toast('Saved.');};
 document.getElementById('detectSS').onclick=async function(){var st=document.getElementById('connStatus');st.textContent='Detecting…';try{var r=await tf('/v2/social-sets','GET');var id=r.results&&r.results[0]&&r.results[0].id;if(id){document.getElementById('cf_tfss').value=id;STATE.settings.tfSS=String(id);saveState();st.textContent='✓ Found social set '+id;st.style.color='var(--sage)';}else{st.textContent='No social sets returned';st.style.color='var(--clay)';}}catch(e){st.textContent='✗ '+e.message;st.style.color='var(--clay)';}};
@@ -459,7 +468,7 @@ document.getElementById('testBh').onclick=async function(){var st=document.getEl
 document.getElementById('testTf').onclick=async function(){var st=document.getElementById('connStatus');st.textContent='Testing Typefully…';try{await tf('/v2/me','GET');st.textContent='✓ Typefully OK';st.style.color='var(--sage)';}catch(e){st.textContent='✗ '+e.message;st.style.color='var(--clay)';}};
 function renderBackupLine(){var l=document.getElementById('backupline');if(!STATE.lastBackup){l.innerHTML='<b style="color:var(--clay)">No backup yet — export one now.</b>';return;}var days=Math.floor((Date.now()-new Date(STATE.lastBackup))/86400000);l.innerHTML='Last backup: '+(days===0?'today':days+' day'+(days>1?'s':'')+' ago')+(days>=7?' — <b style="color:var(--clay)">time for a fresh one.</b>':'.');}
 function updateAIStatus(){var el=document.getElementById('aistatus');if(STATE.settings.key)el.innerHTML='<span style="color:var(--gold)">AI: local key</span>';else el.innerHTML='AI: <span style="color:var(--teal)">'+(STATE.settings.endpoint||'/api/claude')+'</span>';}
-function fillSettings(){set('cf_endpoint',STATE.settings.endpoint||'/api/claude');set('cf_model',STATE.settings.model||'claude-sonnet-4-6');set('cf_key',STATE.settings.key||'');set('cf_bhpub',STATE.settings.bhPub||'');set('cf_tfss',STATE.settings.tfSS||'');bindMetric('m_followers','followers');bindMetric('m_subs','subs');bindMetric('m_talks','talks');}
+function fillSettings(){set('cf_secret',STATE.settings.appSecret||'');set('cf_endpoint',STATE.settings.endpoint||'/api/claude');set('cf_model',STATE.settings.model||'claude-sonnet-4-6');set('cf_key',STATE.settings.key||'');set('cf_bhpub',STATE.settings.bhPub||'');set('cf_tfss',STATE.settings.tfSS||'');bindMetric('m_followers','followers');bindMetric('m_subs','subs');bindMetric('m_talks','talks');}
 
 /* ===== UTIL ===== */
 function val(id){return document.getElementById(id).value.trim();}
