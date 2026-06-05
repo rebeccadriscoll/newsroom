@@ -181,7 +181,7 @@ select,input.txt{font-family:'Hanken Grotesk';font-size:13px;font-weight:600;pad
     <h2 class="sec">Build &amp; Archive</h2>
     <div class="bucket-key"><span><i style="background:var(--clay)"></i>Build next</span><span><i style="background:var(--slate)"></i>Fold</span><span><i style="background:var(--gold)"></i>Bench</span><span><i style="background:var(--teal)"></i>Campaign</span><span><i style="background:var(--plum)"></i>Service</span><span><i style="background:var(--ink2)"></i>Park</span><span><i style="background:#9a8f7d"></i>Archive</span></div>
     <div class="toolbar" id="pfilters">
-      <button class="filt on" data-f="all">All</button><button class="filt" data-f="BUILD">Build</button><button class="filt" data-f="FOLD">Fold</button><button class="filt" data-f="BENCH">Bench</button><button class="filt" data-f="CAMPAIGN">Campaign</button><button class="filt" data-f="LATER">Service</button><button class="filt" data-f="Tool">Tools</button><button class="filt" data-f="Marketing">Marketing</button>
+      <button class="filt on" data-f="all">All</button><button class="filt" data-f="BUILD">Build</button><button class="filt" data-f="FOLD">Fold</button><button class="filt" data-f="BENCH">Bench</button><button class="filt" data-f="CAMPAIGN">Campaign</button><button class="filt" data-f="LATER">Service</button><button class="filt" data-f="Tool">Tools</button><button class="filt" data-f="Marketing">Marketing</button><button class="abtn" id="archtoggle" style="margin-left:10px">Show archived</button>
     </div>
     <div class="pgrid" id="pipelist"></div>
   </section>
@@ -401,17 +401,19 @@ function renderQueue(){renderThisWeek();renderCalendar();}
 
 /* ===== BUILD ===== */
 var PF='all';
+var SHOWARCH=false;
 var BUCKET_NAME={BUILD:'Build next',FOLD:'Fold into a tool',BENCH:'On the bench',PARK:'Park',ARCHIVE:'Archive',CAMPAIGN:'Campaign-ready',LATER:'Service · later',SPINE:'Spine',IDEA:'New idea'};
 var BORDER={BUILD:0,IDEA:0.5,CAMPAIGN:1,BENCH:2,FOLD:3,LATER:4,PARK:5,SPINE:6,ARCHIVE:7};
 function builds(){return STATE.items.filter(function(i){return i.kind==='build';});}
 function renderPipe(){
-  var list=builds().filter(function(p){if(p.archived)return false;if(PF==='all')return true;if(['Tool','Marketing','Service'].indexOf(PF)>=0)return p.type===PF;return p.bucket===PF;});
-  list.sort(function(a,b){return (BORDER[a.bucket]==null?9:BORDER[a.bucket])-(BORDER[b.bucket]==null?9:BORDER[b.bucket]);});
+  var list=builds().filter(function(p){if(p.archived&&!SHOWARCH)return false;if(PF==='all')return true;if(['Tool','Marketing','Service'].indexOf(PF)>=0)return p.type===PF;return p.bucket===PF;});
+  list.sort(function(a,b){var aa=a.archived?1:0,ba=b.archived?1:0;if(aa!==ba)return aa-ba;return (BORDER[a.bucket]==null?9:BORDER[a.bucket])-(BORDER[b.bucket]==null?9:BORDER[b.bucket]);});
   document.getElementById('pipelist').innerHTML=list.length?list.map(function(p){var sub=p.channel?' · '+p.channel:'';return '<div class="pcard'+(p.archived?' arch':'')+'"><div class="pt">'+(p.type||'Idea')+sub+' · '+(p.theme||'')+'</div><h4>'+esc(p.title)+'</h4><div class="rec">'+esc(p.rec||'')+'</div><div class="pa"><span class="badge b-'+(p.bucket||'IDEA')+'">'+(BUCKET_NAME[p.bucket]||'Idea')+'</span><button class="abtn '+(p.archived?'is':'')+'" data-arch="'+p.id+'">'+(p.archived?'Archived ✓':'Archive')+'</button></div></div>';}).join(''):'<div class="empty">Nothing here.</div>';
   document.querySelectorAll('#pipelist [data-arch]').forEach(function(b){b.onclick=function(){var it=byId(b.dataset.arch);it.archived=!it.archived;saveState();renderPipe();};});
   document.getElementById('pn').textContent=builds().filter(function(i){return !i.archived;}).length;
 }
 document.querySelectorAll('#pfilters .filt').forEach(function(b){b.onclick=function(){document.querySelectorAll('#pfilters .filt').forEach(function(x){x.classList.remove('on');});b.classList.add('on');PF=b.dataset.f;renderPipe();};});
+document.getElementById('archtoggle').onclick=function(){SHOWARCH=!SHOWARCH;this.classList.toggle('is',SHOWARCH);this.textContent=SHOWARCH?'Hide archived':'Show archived';renderPipe();};
 
 /* ===== DRAWER ===== */
 function byId(id){return STATE.items.filter(function(i){return i.id===id;})[0];}
